@@ -1,7 +1,0 @@
----
-title: "Midterm_2"
-author: "Olivia Bickford"
-date: "2024-04-17"
-output: html_document
----
-
