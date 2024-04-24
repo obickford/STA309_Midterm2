@@ -1,0 +1,428 @@
+---
+title: "Midterm_2"
+author: "Olivia Bickford"
+date: "2024-04-17"
+output: html_document
+---
+
+# Problem 1: Dairy Dashboard
+
+```{r, warning = F, message=F}
+library(tidyverse)
+library(ggthemes)
+library(readxl)
+library(lubridate)
+library(ggwordcloud)
+library(tidytext)
+library(patchwork)
+library(jpeg) 
+library(ggrepel)
+```
+
+```{r}
+world_map <- map_data("world") %>%
+  select(- subregion) %>%
+  mutate(region = if_else(region == "USA", "United States", region))
+```
+
+
+### Read in Data
+
+```{r}
+production <- read.csv("https://raw.githubusercontent.com/oconnellmj/sta309/main/milk-production-tonnes.csv")
+consumption <- read.csv("https://raw.githubusercontent.com/oconnellmj/sta309/main/per-capita-milk-consumption.csv")
+```
+
+
+### Map of Average Dairy Production
+
+```{r}
+# average dairy production
+production_avg <- production %>%
+  group_by(Entity) %>%
+  summarize(Avg_Production = mean(Milk.Production..tonnes.)) %>%
+  mutate(Avg_Production = as.numeric(Avg_Production)) %>%
+  right_join(world_map, by = c("Entity" = "region"))
+```
+
+
+```{r}
+production_plot <- ggplot(production_avg, aes(x = long, y = lat, group = group, fill = Avg_Production)) +
+  geom_polygon(color = "black") +
+  scale_fill_gradient2(low = "cadetblue3",high ="firebrick2", name = "Average Production (tonnes)",
+                       midpoint = 40483532, limits=c(53,74967116), labels = scales::comma) +
+  labs(title = "Average Dairy Production per Country",
+       subtitle = "From 1962 - 2022, in Tonnes") +
+  theme_map() +
+  theme(legend.position = "bottom",
+        legend.key.width = unit(1.5, "cm"),
+        legend.justification = "center",
+        plot.title = element_text(hjust = 0.5),
+        plot.subtitle = element_text(hjust=0.5))
+```
+
+### Map of Dairy Consumption
+
+```{r}
+# average dairy consumption
+consumption_avg <- consumption %>%
+  group_by(Entity) %>%
+  summarize(Avg_consumption = mean(Milk.consumption..kilograms.per.year.per.capita.)) %>%
+  mutate(Avg_consumption = as.numeric(Avg_consumption)) %>%
+  right_join(world_map, by = c("Entity" = "region"))
+```
+
+
+```{r}
+consumption_plot <- ggplot(consumption_avg, 
+                           aes(x = long, y = lat, group = group, fill = Avg_consumption)) +
+  geom_polygon(color = "black") +
+  scale_fill_gradient2(low = "cadetblue3",high ="firebrick2", 
+                       name = "Average Consumption (Kilograms/year)",
+                       midpoint = 120.3, limits=c(2.9,359.1), labels = scales::comma) +
+  labs(title = "Average Dairy Consumption per Country per Year",
+       subtitle = "From 1962 - 2022, in Kilograms") +
+  theme_map() +
+  theme(legend.position = "bottom",
+        legend.justification = "center",
+        plot.title = element_text(hjust = 0.5),
+        plot.subtitle = element_text(hjust=0.5))
+```
+
+
+### Changes in dairy production/consumption over time
+
+```{r}
+prod_dates <- production %>%
+  group_by(Year) %>%
+  summarize(Avg_Production = mean(Milk.Production..tonnes.))
+
+consumption_dates <- consumption %>%
+  group_by(Year) %>%
+  summarize(Consumption_Avg_Years = round(mean(Milk.consumption..kilograms.per.year.per.capita.),2))
+```
+
+
+```{r}
+production_dates_Plot <- ggplot(prod_dates, aes(x = Year, y = Avg_Production)) + 
+  geom_area(color = "cyan", fill = "cyan3") + 
+  theme_minimal() +
+  labs(title = "Production (tonnes) Changes Over Time", x = "", y = "") + 
+  annotate(geom="label", x=1985, y=1e+07, label="1990s Dairy Prices Crashed\nleading to farms going under", color="gray10", hjust=0, size=3) + 
+  annotate(geom="label", x=2002, y=2e+07, label="2020 Covid-19\nPandemic Shutdown", color="gray10", hjust=0, size=3) + 
+  annotate(geom="segment", x=1989, y=1.2e+07, xend=1992, yend=1.5e+07,
+           arrow=arrow(type="closed", length=unit(2,"mm"))) +
+  annotate(geom="segment", x=2019, y=2.2e+07, xend=2021, yend=2.6e+07,
+           arrow=arrow(type="closed", length=unit(2,"mm"))) +
+  theme(plot.title = element_text(hjust = 0.5)
+        )
+
+# Plot for consumption changes
+consumption_dates_plot <- ggplot(consumption_dates, aes(x = Year, y = Consumption_Avg_Years)) + 
+  geom_area(color = "firebrick3", fill="firebrick2") + 
+  theme_minimal() +
+  annotate(geom="label", x=1972, y=73, label="1990s Dairy Prices Crashed\nleading to farms going under", color="gray10", hjust=0, size=3) + 
+  annotate(geom="label", x=2002, y=82, label="2009 U.S. Recession", color="gray10", hjust=0, size=3) + 
+  annotate(geom="segment", x=1985, y=85, xend=1990, yend=95,
+           arrow=arrow(type="closed", length=unit(2,"mm"))) +
+  annotate(geom="segment", x=2008, y=90, xend=2010, yend=103,
+           arrow=arrow(type="closed", length=unit(2,"mm"))) +
+  labs(title = "Consumption (kg) Changes Over Time", x = "", y = "") 
+```
+
+```{r}
+merged_data <- na.omit(left_join(prod_dates, consumption_dates, by = "Year"))
+```
+
+
+### Relationship (averages over time?)
+
+```{r}
+merged_data <- na.omit(left_join(prod_dates, consumption_dates, by = "Year"))
+```
+
+```{r, message=FALSE}
+relationship <- ggplot(data = merged_data, aes(x = Avg_Production, y = Consumption_Avg_Years)) +
+  geom_point() +
+  geom_smooth(method = "lm", color = "firebrick2") + 
+  theme_minimal() +
+  labs(title = "Relationship between Average Dairy\nProduction and Consumption", x="", y="") +
+  theme(plot.title = element_text(hjust=0.5))
+```
+
+
+### Starting to buld Dashboard
+
+```{r, message=F}
+dairy <- (production_plot + consumption_plot) / (production_dates_Plot + consumption_dates_plot + relationship) +
+  plot_annotation(
+    title = paste("Average Dairy Production and Consumption Across the World From 1962-2022"),
+    subtitle = 'The USA is a major producer and consumer of dairy. There has been a steady increase in both the average production and consumption since 1962.\nThere is a strong linear correlation between the amount a country produces and the amount a country consumes.',
+    caption = 'Source: Food and Agriculture Organization of the United Nations'
+  ) +
+  theme(plot.title = element_text(hjust = 0.5), 
+        plot.subtitle = element_text(hjust = 0.5))
+
+ggsave(plot=dairy, filename="dairy_dashboard.png",
+       width=13, height=9, dpi=300)
+```
+
+
+
+# Problem 2 - Taylor Swift Lyric
+
+
+### Download 2 Albums (Speak Now, Reputation)
+
+```{r}
+taylor_swift_data <- read.csv("taylor_swift_genius_data.csv")
+
+reputation <- taylor_swift_data %>%
+  filter(Album == "Reputation") %>%
+  select(- index)
+
+speak_now <- taylor_swift_data %>%
+  filter(Album == "Speak Now") %>%
+  select(- index)
+```
+
+
+```{r}
+## Unnest tokens
+tidy_sn <- speak_now %>%
+  unnest_tokens(word, Lyrics)
+
+tidy_rep <- reputation %>%
+  unnest_tokens(word, Lyrics)
+```
+
+
+```{r}
+## removing stop words
+stopwords <- get_stopwords()
+```
+
+```{r, message=F}
+## compare both albums, one wordcloud
+tidy_both <- bind_rows(tidy_sn, tidy_rep) %>%
+  anti_join(stopwords)
+```
+
+```{r}
+word_sentiments <- get_sentiments("bing")
+```
+
+### Word Cloud - Speak Now
+
+```{r, message = F}
+sn_pop_words_sent <- tidy_sn %>%
+  anti_join(stopwords) %>%
+  group_by(word) %>%
+  summarize(N=n()) %>%
+  inner_join(word_sentiments, by="word")
+
+# Wordcloud - colored by sentiment
+sn_word_cloud <- ggplot(sn_pop_words_sent, aes(label=word, size=N, color=sentiment)) +
+  geom_text_wordcloud() +
+  scale_color_manual(values = c("positive" = "#632e6d", "negative" = "#e2b7ce")) +  
+  labs(title = "Speak Now Word Cloud") +
+  scale_size_area(max_size=15) +
+  theme_minimal() +
+  theme(plot.title = element_text(hjust=0.5))
+```
+
+### Word Cloud - Reputation
+
+```{r, message = F, warning=F}
+rep_pop_words_sent <- tidy_rep %>%
+  anti_join(stopwords) %>%
+  group_by(word) %>%
+  summarize(N=n()) %>%
+  inner_join(word_sentiments, by="word")
+
+# Wordcloud - colored by sentiment
+rep_world_cloud <- ggplot(rep_pop_words_sent, aes(label=word, size=N, color=sentiment)) +
+  geom_text_wordcloud() +
+  scale_color_manual(values = c("positive" = "#000000", "negative" = "#727272")) +  
+  labs(title = "Reputation Word Cloud") +
+  scale_size_area(max_size=15) +
+  theme_minimal() +
+  theme(plot.title = element_text(hjust=0.5))
+```
+
+
+### Sentiment Analysis
+
+```{r, message=F}
+album_sentiment <- tidy_both %>%
+  inner_join(word_sentiments, by="word")
+
+album_sentiment_summary <- album_sentiment %>%
+  group_by(Album, sentiment) %>%
+  summarize(N=n()) %>%
+  group_by(Album) %>%
+  mutate(Percent=N/sum(N)*100,
+         TypeSent = paste0(Album, sentiment))
+```
+
+
+### Sentiment Plot
+
+```{r}
+sent_plot <- ggplot(album_sentiment_summary) +
+  geom_col(aes(x = factor(Album, levels = c("Reputation", "Speak Now")), y = Percent, fill = TypeSent)) +
+  scale_fill_manual(values = c("Reputationpositive" = "#222222",
+                               "Reputationnegative" = "#eeeeee",
+                               "Speak Nowpositive" = "#632e6d",
+                               "Speak Nownegative" = "#e2b7ce")) +
+  coord_cartesian(expand = F) +
+  annotate("label", x=1.5, y=83, label="Negative Words", size = 5) +
+  annotate("label", x=1.5, y=15, label="Positive Words", size=5) +
+  labs(title="Percentage of Positive and Negative words in Taylor Swift Albums",
+       subtitle="Reputation and Speak Now") +
+  theme_minimal() +
+  theme(axis.title=element_blank(),
+        legend.position = "none",
+        plot.title = element_text(hjust=0.5),
+        plot.subtitle = element_text(hjust = 0.5))
+```
+
+```{r}
+img <- readJPEG("/Users/livib/OneDrive/Desktop/reputation.jpg", native=TRUE)
+img2 <- readJPEG("/Users/livib/OneDrive/Desktop/speaknow.jpg", native=TRUE)
+
+sent_plot_img <- sent_plot +
+  inset_element(p = img, 
+                left = 0.14, 
+                bottom = 0.65, 
+                right = 0.31, 
+                top = 0.97) +
+  inset_element(p = img2,
+                 left = 0.7,
+                 bottom = 0.65,
+                 right = 0.87,
+                 top = 0.97)
+```
+
+### Spotify Analysis
+
+```{r, warning=F}
+spotify_data <- read.csv("taylor_swift_spotify_data.csv")
+
+spotify_rep_sn <- spotify_data %>%
+  filter(Album %in% c("reputation", "Speak Now")) %>%
+  mutate(Album = str_to_title(Album),
+         Song.Name = gsub("[’'‘]", "", str_to_title(Song.Name))) %>%
+  select(-URI, - Playlist.ID, - Time.Signature)
+```
+
+
+### Combining Song Sentiments
+
+```{r, message=F}
+## song sentiment counts 
+song_sentiment_counts <- album_sentiment %>%
+  mutate(Song.Name = gsub("[’'‘]", "", str_to_title(Song.Name)),
+         Album = str_to_title(Album)) %>%
+  group_by(Album, Song.Name, sentiment) %>%
+  summarise(Count = n()) 
+
+song_total_counts <- song_sentiment_counts %>%
+  group_by(Album, Song.Name) %>%
+  summarise(Total_Count = sum(Count)) %>%
+  ungroup()
+
+song_sentiment_counts2 <- left_join(song_sentiment_counts, song_total_counts, by = c("Album", "Song.Name"))
+
+song_sentiment_counts3 <- song_sentiment_counts2 %>%
+  mutate(Percentage = (Count / Total_Count) * 100)
+```
+
+
+### Combine Sentiment Data and Spotify Metadata
+
+```{r, warning=F}
+merged_spotify_sent <- right_join(song_sentiment_counts3, spotify_rep_sn, by = c("Album", "Song.Name"))
+merged_spotify_sent$sentiment <- factor(merged_spotify_sent$sentiment)
+
+
+merge_test <- right_join(album_sentiment_summary, spotify_rep_sn, by = c("Album")) %>%
+  mutate(sentiment_fct = as.factor(sentiment),
+         TypeSent_fct = as.factor(TypeSent),
+         Danceability = as.numeric(Danceability),
+         Energy = as.numeric(Energy))
+```
+
+
+### Density Plot - Energy
+
+```{r}
+ts_density <- ggplot(merged_spotify_sent, aes(x = Energy, fill = Album)) +
+  geom_density(alpha=0.9) +
+  labs(title = "Density Plot of Energy in Taylor Swift's Albums",
+       x = "Energy", y = "") +
+  scale_fill_manual(values = c("Reputation" = "gray50", "Speak Now" = "#632e6d")) +
+  annotate(geom="label", x=0.25, y=1.8, label="In Reputation, Swift embraces a more assertive\nand edgier version of herself.\nMost of the songs have high energy\ncompared to previous albums.", color="gray10", hjust=0.3, size=3) + 
+  theme_minimal() +
+  theme(plot.title = element_text(hjust=0.5),
+        panel.grid.minor.x = element_blank(),
+        panel.grid.major.x = element_blank(),
+        legend.position="bottom")
+```
+
+
+
+### Violin Plot - Danceability
+
+```{r}
+ts_violin <- ggplot(merge_test) +
+  geom_violin(aes(x = Album, y = Danceability, fill=Album)) +
+  geom_boxplot(aes(x=Album, y=Danceability),color="grey75", width=0.35) +  
+  stat_summary(aes(x=Album, y=Danceability), fun="mean",
+               geom="point", shape=18, size=3) +
+  scale_fill_manual(values = c("Reputation" = "#222222", "Speak Now" = "#632e6d")) +
+  annotate("text", x=2, y=0.565, label="Mean:\n0.54", color ="gray10", size =3) +
+  annotate("text", x=1, y=0.675, label="Mean:\n0.67", color ="gray10", size =3) +
+  labs(title = "Danceability Proportion Among Taylor Swifts Songs",
+       x = "",
+       y = "") +
+  theme_minimal() +
+  coord_flip() +
+  theme(legend.position="none",
+        plot.title = element_text(hjust=0.5))
+```
+
+
+
+### Scatterplot per Album - Energy
+
+```{r}
+ts_scatterplot <- ggplot(spotify_rep_sn, aes(x = Energy, y = Valence, color = Album,)) +
+  geom_text_repel(aes(x=Energy, y=Valence, label = Song.Name, color = Album))+
+  scale_color_manual(values = c("Reputation" = "black", "Speak Now" = "#632e6d")) +
+  labs(title = "Relationship Between Energy and Valence",
+       x = "Energy", y = "Valence") +
+  theme_minimal() +
+  theme(legend.position = "none",
+        plot.title = element_text(hjust=0.5),
+        panel.grid.major.x = element_blank())
+```
+
+
+
+## TS Dashboard
+
+```{r}
+ts_dash <- (rep_world_cloud + sn_word_cloud)/ (sent_plot_img + ts_scatterplot) / (ts_violin + ts_density) +   plot_layout(nrow=3, widths=c(1.33,2,2) ) +
+  plot_annotation(title = "Analysis of Taylor Swift's Reputation (2017) and Speak Now (2010).",
+                  subtitle = "Speak Now was a testimate to Swift growing into adulthood and moving out of the country scene to pop and making herself known. Reputation was a defense mechanism against the\nmedia as a means to revamp her music style coming back into the public.Both are very different albums, but have similar Danceability, Energy,and Positive and Negative Words.",
+                  caption = "Source: GitHub")
+
+```
+
+
+```{r}
+ggsave(plot=ts_dash, filename="ts_dashboard.png",
+       width=16, height=14, dpi=300)
+```
+
